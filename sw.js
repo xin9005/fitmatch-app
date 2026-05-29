@@ -1,28 +1,195 @@
-const CACHE_NAME = "fitmatch-v26";
-const ASSETS = [
-  "./",
-  "./index.html",
-  "./styles.css",
-  "./app.js",
-  "./manifest.webmanifest",
-  "./icon.svg",
-];
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#244f57" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="FitMatch" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <title>FitMatch 智能衣柜</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">FitMatch</p>
+          <h1>智能衣柜搭配</h1>
+        </div>
+        <div class="top-actions">
+          <button class="icon-button" id="installApp" type="button" title="安装到手机桌面" hidden>⇩</button>
+          <button class="icon-button" id="resetDemo" type="button" title="恢复示例数据">↺</button>
+        </div>
+      </header>
 
-self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)));
-});
+      <section class="panel intro">
+        <div>
+          <h2>为简约、通勤、韩系风格生成真实可用的搭配。</h2>
+          <p>先上传你的衣服照片，补充类别、颜色和场景。选择一件单品后，系统会从衣柜里组合 3 套建议。</p>
+        </div>
+        <div class="weather-chip">
+          <span>今日场景</span>
+          <strong id="activeSceneLabel">上班</strong>
+        </div>
+      </section>
 
-self.addEventListener("activate", (event) => {
-  event.waitUntil(
-    caches.keys().then((names) => {
-      return Promise.all(names.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name)));
-    })
-  );
-});
+      <section class="auth-panel" id="authPanel">
+        <div class="auth-status">
+          <strong id="authTitle">未登录</strong>
+          <span id="syncStatus">登录后可在手机和电脑同步衣柜。</span>
+        </div>
+        <form class="auth-form" id="authForm">
+          <input id="authEmail" type="email" placeholder="邮箱" autocomplete="email" />
+          <input id="authPassword" type="password" placeholder="密码" autocomplete="current-password" />
+          <button class="primary-button" id="loginButton" type="button">登录</button>
+          <button class="secondary-button" id="signupButton" type="button">注册</button>
+        </form>
+        <div class="auth-actions" id="cloudActions" hidden>
+          <button class="secondary-button" id="syncLocalButton" type="button">上传本地衣柜到云端</button>
+          <button class="secondary-button" id="logoutButton" type="button">退出登录</button>
+        </div>
+      </section>
 
-self.addEventListener("fetch", (event) => {
-  if (event.request.method !== "GET") return;
-  event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
-  );
-});
+      <section class="controls-band">
+        <div class="segmented" aria-label="选择场景">
+          <button class="scene-button active" data-scene="work" type="button">上班</button>
+          <button class="scene-button" data-scene="daily" type="button">日常</button>
+          <button class="scene-button" data-scene="date" type="button">约会</button>
+        </div>
+        <label class="upload-button">
+          <input id="photoInput" type="file" accept="image/*" />
+          <span>上传衣服</span>
+        </label>
+      </section>
+
+      <section class="upload-editor" id="uploadEditor" hidden>
+        <div class="preview-frame">
+          <img id="newItemPreview" alt="新上传衣服预览" />
+        </div>
+        <form class="item-form" id="itemForm">
+          <div class="form-grid">
+            <label>
+              名称
+              <input id="itemName" type="text" placeholder="例如：米色针织开衫" required />
+            </label>
+            <label>
+              类别
+              <select id="itemCategory" required>
+                <option value="top">上衣</option>
+                <option value="outer">外套</option>
+                <option value="bottom">下装</option>
+                <option value="dress">连衣裙</option>
+                <option value="shoes">鞋子</option>
+                <option value="bag">包/配饰</option>
+              </select>
+            </label>
+            <label>
+              主色
+              <select id="itemColor" required>
+                <option value="white">白色/米色</option>
+                <option value="black">黑色</option>
+                <option value="gray">灰色</option>
+                <option value="navy">藏蓝</option>
+                <option value="blue">蓝色</option>
+                <option value="brown">棕色</option>
+                <option value="pink">粉色</option>
+                <option value="green">绿色</option>
+              </select>
+            </label>
+            <label>
+              风格
+              <select id="itemStyle" required>
+                <option value="minimal">简约</option>
+                <option value="commute">通勤</option>
+                <option value="korean">韩系</option>
+                <option value="soft">温柔</option>
+                <option value="casual">休闲</option>
+              </select>
+            </label>
+          </div>
+          <div class="form-actions">
+            <button class="secondary-button" id="cancelUpload" type="button">取消</button>
+            <button class="primary-button" id="saveItemButton" type="submit">加入衣柜</button>
+          </div>
+          <p class="form-status" id="formStatus"></p>
+        </form>
+      </section>
+
+      <nav class="tabs" aria-label="页面">
+        <button class="tab-button active" data-tab="wardrobe" type="button">衣柜</button>
+        <button class="tab-button" data-tab="outfits" type="button">搭配</button>
+        <button class="tab-button" data-tab="profile" type="button">偏好</button>
+      </nav>
+
+      <section class="tab-page active" id="wardrobe">
+        <div class="section-heading">
+          <h2>我的衣柜</h2>
+          <span id="itemCount"></span>
+        </div>
+        <div class="filter-row" id="categoryFilters"></div>
+        <div class="wardrobe-grid" id="wardrobeGrid"></div>
+      </section>
+
+      <section class="tab-page" id="outfits">
+        <div class="section-heading">
+          <h2>搭配建议</h2>
+          <span>选择一件衣服作为核心单品</span>
+        </div>
+        <div class="selected-item" id="selectedItem"></div>
+        <div class="outfit-list" id="outfitList"></div>
+      </section>
+
+      <section class="tab-page" id="profile">
+        <div class="section-heading">
+          <h2>穿搭偏好</h2>
+          <span>用户画像</span>
+        </div>
+        <div class="preference-panel">
+          <label>
+            性别方向
+            <select id="audienceSelect">
+              <option value="female">成年女性</option>
+              <option value="male">成年男性</option>
+            </select>
+          </label>
+        </div>
+        <div class="profile-list">
+          <div><span>用户</span><strong id="profileAudience">成年女性</strong></div>
+          <div><span>风格</span><strong id="profileStyles">简约 / 通勤 / 韩系</strong></div>
+          <div><span>场景</span><strong>上班 / 日常 / 约会</strong></div>
+          <div><span>数据</span><strong>个人衣柜照片优先</strong></div>
+        </div>
+        <div class="note-panel">
+          <h3>后续接入真实 AI 时</h3>
+          <p>上传照片后先由视觉模型识别类别、颜色、材质、版型和季节，再结合趋势库与个人反馈进行排序。这个原型先把核心产品流程跑通。</p>
+        </div>
+      </section>
+    </main>
+
+    <template id="itemTemplate">
+      <article class="wardrobe-item">
+        <button class="item-image-button" type="button">
+          <img alt="" />
+        </button>
+        <div class="item-meta">
+          <h3></h3>
+          <p></p>
+          <div class="item-actions">
+            <button class="text-button edit-item" type="button">编辑</button>
+            <button class="text-button delete-item" type="button">删除</button>
+          </div>
+        </div>
+      </article>
+    </template>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="app.js?v=27"></script>
+    <script>
+      if ("serviceWorker" in navigator && location.protocol !== "file:") {
+        navigator.serviceWorker.register("./sw.js");
+      }
+    </script>
+  </body>
+</html>
