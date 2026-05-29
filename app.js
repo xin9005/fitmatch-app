@@ -1,5 +1,5 @@
 const STORAGE_KEY = "fitmatch-wardrobe-v1";
-const SCRIPT_VERSION = "23";
+const SCRIPT_VERSION = "24";
 const PROFILE_KEY = "fitmatch-profile-v1";
 const SUPABASE_URL = "https://ovbcfhwualkgfxiconet.supabase.co";
 const SUPABASE_KEY = "sb_publishable_RQdb8jNRnz4mlRhUXrdaYQ_E4MhBAAC";
@@ -58,6 +58,27 @@ const sceneRules = {
     prefer: ["korean", "soft", "minimal"],
     colors: ["white", "pink", "brown", "gray", "blue"],
     reason: "整体更柔和，强调亲近感和轻盈感，适合晚餐、展览或轻正式约会。",
+  },
+};
+
+const maleSceneRules = {
+  work: {
+    title: "利落男士通勤",
+    prefer: ["commute", "minimal"],
+    colors: ["white", "black", "gray", "navy", "brown", "blue"],
+    reason: "男装通勤优先看剪裁、比例和低饱和配色，避免颜色太跳或配件过多。",
+  },
+  daily: {
+    title: "松弛男士日常",
+    prefer: ["minimal", "casual", "commute"],
+    colors: ["white", "gray", "blue", "brown", "black", "green"],
+    reason: "男生日常更看重基础款、干净层次和舒适度，用牛仔、灰白、棕色系做自然松弛感。",
+  },
+  date: {
+    title: "清爽男士约会",
+    prefer: ["minimal", "korean", "commute", "casual"],
+    colors: ["white", "gray", "blue", "brown", "navy", "black"],
+    reason: "男士约会重点是清爽、有质感、不过度正式，颜色干净比复杂花哨更加分。",
   },
 };
 
@@ -204,8 +225,8 @@ function profileCopy() {
   if (userProfile.audience === "male") {
     return {
       audience: "成年男性",
-      styles: "简约 / 通勤 / 日系休闲",
-      sceneTone: "以干净比例、低饱和颜色和实穿度为主",
+      styles: "简约 / 通勤 / 日系休闲 / 清爽韩系",
+      sceneTone: "以肩线比例、低饱和颜色、鞋裤协调和实穿度为主",
     };
   }
   return {
@@ -213,6 +234,11 @@ function profileCopy() {
     styles: "简约 / 通勤 / 韩系",
     sceneTone: "以轻盈比例、柔和层次和实穿度为主",
   };
+}
+
+function activeSceneRule() {
+  const rules = userProfile.audience === "male" ? maleSceneRules : sceneRules;
+  return rules[activeScene] || rules.daily;
 }
 
 function renderProfile() {
@@ -605,7 +631,7 @@ function renderOutfits() {
 }
 
 function renderCurrentOutfits() {
-  const rule = sceneRules[activeScene];
+  const rule = activeSceneRule();
   els.outfitList.innerHTML = "";
   currentOutfits.forEach((outfit, index) => {
     const missing = missingOutfitParts(outfit.pieces, outfit.variant);
@@ -638,7 +664,7 @@ function renderCurrentOutfits() {
 }
 
 function buildOutfits(selected) {
-  const rule = sceneRules[activeScene];
+  const rule = activeSceneRule();
   const variations = sceneTemplates(activeScene, selected);
   const copy = profileCopy();
 
@@ -790,10 +816,10 @@ function maleSceneTemplates(scene, selected) {
   const templates = {
     work: [
       {
-        title: "干净通勤",
+        title: "利落通勤",
         slots: ["outer", "top", "bottom", "shoes", "bag"],
         palette: ["black", "white", "gray", "navy", "brown"],
-        note: "用外套、基础上装和利落下装建立干净轮廓，适合办公室和通勤。",
+        note: "用外套、基础上装和利落下装建立清晰肩线和腿部比例，适合办公室和通勤。",
         structureLabel: "外套+上衣+下装+鞋包",
         keepSelected,
       },
@@ -801,7 +827,7 @@ function maleSceneTemplates(scene, selected) {
         title: "会议友好",
         slots: ["top", "bottom", "shoes", "bag"],
         palette: ["white", "gray", "navy", "black", "brown"],
-        note: "减少复杂颜色，用稳妥的上衣和裤装提升专业感。",
+        note: "减少复杂颜色，用干净上衣、深色或中性色裤装提升专业感。",
         structureLabel: "上衣+下装+鞋包",
         keepSelected,
       },
@@ -809,7 +835,7 @@ function maleSceneTemplates(scene, selected) {
         title: "轻商务层次",
         slots: ["outer", "top", "bottom", "shoes"],
         palette: ["navy", "gray", "white", "black", "brown"],
-        note: "保留外套层次，同时让鞋子和裤装保持低调统一。",
+        note: "保留外套层次，同时让鞋子和裤装保持低调统一，适合不想穿得太正式的时候。",
         structureLabel: "外套+上衣+下装+鞋",
         keepSelected,
       },
@@ -819,7 +845,7 @@ function maleSceneTemplates(scene, selected) {
         title: "日系休闲",
         slots: ["outer", "top", "bottom", "shoes", "bag"],
         palette: ["white", "gray", "brown", "blue", "green"],
-        note: "日常优先舒适比例和自然层次，适合周末、咖啡和逛街。",
+        note: "日常优先舒适比例和自然层次，适合周末、咖啡和逛街，整体要松弛但不邋遢。",
         structureLabel: "外套+上衣+下装+鞋包",
         keepSelected: false,
       },
@@ -827,7 +853,7 @@ function maleSceneTemplates(scene, selected) {
         title: "低饱和基础款",
         slots: ["top", "bottom", "shoes", "bag"],
         palette: ["white", "gray", "blue", "black", "brown"],
-        note: "用基础款和低饱和颜色控制整体干净度。",
+        note: "用基础款和低饱和颜色控制整体干净度，靠鞋裤关系和版型做时尚感。",
         structureLabel: "上衣+下装+鞋包",
         keepSelected,
       },
@@ -835,7 +861,7 @@ function maleSceneTemplates(scene, selected) {
         title: "轻松出门",
         slots: ["top", "bottom", "shoes"],
         palette: ["white", "blue", "gray", "brown", "black"],
-        note: "减少配件负担，强调舒服、利落、容易出门。",
+        note: "减少配件负担，强调舒服、利落、容易出门，适合男生日常高频穿搭。",
         structureLabel: "上衣+下装+鞋",
         keepSelected,
       },
@@ -845,7 +871,7 @@ function maleSceneTemplates(scene, selected) {
         title: "清爽约会",
         slots: ["outer", "top", "bottom", "shoes", "bag"],
         palette: ["white", "gray", "brown", "blue", "black"],
-        note: "约会场景强调干净和亲近感，避免过于正式或沉闷。",
+        note: "约会场景强调干净和亲近感，避免过于正式、沉闷或颜色太杂。",
         structureLabel: "外套+上衣+下装+鞋包",
         keepSelected,
       },
@@ -853,7 +879,7 @@ function maleSceneTemplates(scene, selected) {
         title: "温和层次",
         slots: ["top", "bottom", "shoes", "bag"],
         palette: ["white", "gray", "brown", "blue", "green"],
-        note: "用柔和颜色和简洁比例保留精致感。",
+        note: "用柔和颜色和简洁比例保留精致感，看起来有整理过但不刻意。",
         structureLabel: "上衣+下装+鞋包",
         keepSelected,
       },
@@ -861,7 +887,7 @@ function maleSceneTemplates(scene, selected) {
         title: "轻熟平衡",
         slots: ["outer", "top", "bottom", "shoes"],
         palette: ["black", "gray", "white", "brown", "navy"],
-        note: "保留成熟感，但用浅色内搭和干净鞋款降低距离感。",
+        note: "保留成熟感，但用浅色内搭和干净鞋款降低距离感，适合晚餐或轻正式约会。",
         structureLabel: "外套+上衣+下装+鞋",
         keepSelected: false,
       },
@@ -972,7 +998,8 @@ function bestPick(pool, rule, palette, selected, variantIndex = 0) {
           (rule.prefer.includes(piece.style) ? 5 : 0) +
           (paletteIndex >= 0 ? 5 - paletteIndex * 0.45 : 0) +
           (piece.style === selected.style ? 2 : 0) +
-          (isCompatibleColor(piece.color, selected.color) ? 2 : 0) -
+          (isCompatibleColor(piece.color, selected.color) ? 2 : 0) +
+          profilePickBonus(piece, selected) -
           Math.abs(index - variantIndex) * 0.2,
       };
     })
@@ -981,6 +1008,19 @@ function bestPick(pool, rule, palette, selected, variantIndex = 0) {
 
   const candidateIndex = variantIndex % ranked.length;
   return ranked[candidateIndex]?.piece || ranked[0].piece;
+}
+
+function profilePickBonus(piece, selected) {
+  if (userProfile.audience !== "male") return 0;
+  let bonus = 0;
+  if (["white", "gray", "black", "navy", "blue", "brown"].includes(piece.color)) bonus += 1.5;
+  if (["minimal", "commute", "casual"].includes(piece.style)) bonus += 1.2;
+  if (activeScene === "work" && piece.style === "commute") bonus += 1.4;
+  if (activeScene === "daily" && ["casual", "minimal"].includes(piece.style)) bonus += 1.2;
+  if (activeScene === "date" && ["minimal", "korean"].includes(piece.style)) bonus += 1.4;
+  if (piece.category === "shoes" && isCompatibleColor(piece.color, selected.color)) bonus += 1;
+  if (["pink", "green"].includes(piece.color) && activeScene !== "daily") bonus -= 1.2;
+  return bonus;
 }
 
 function orderedPieces(chosen, slots = null) {
@@ -1027,8 +1067,29 @@ function scoreOutfit(pieces, rule, missing = []) {
   if (activeScene === "work" && pieces.some((piece) => ["pink", "green"].includes(piece.color))) score -= 4;
   if (activeScene === "date" && pieces.every((piece) => ["black", "gray", "navy"].includes(piece.color))) score -= 5;
   if (activeScene === "daily" && pieces.filter((piece) => piece.style === "commute").length >= 3) score -= 4;
+  score += profileScoreAdjustment(pieces, mainPieces, accents);
 
   return String(Math.max(62, Math.min(96, Math.round(score))));
+}
+
+function profileScoreAdjustment(pieces, mainPieces, accents) {
+  if (userProfile.audience !== "male") return 0;
+  let score = 0;
+  const mutedColors = ["white", "gray", "black", "navy", "blue", "brown"];
+  const hasTopBottom = pieces.some((piece) => piece.category === "top") && pieces.some((piece) => piece.category === "bottom");
+  const loudCount = pieces.filter((piece) => ["pink", "green"].includes(piece.color)).length;
+  const foundationCount = mainPieces.filter((piece) => mutedColors.includes(piece.color)).length;
+
+  if (hasTopBottom) score += 3;
+  if (foundationCount >= Math.min(2, mainPieces.length)) score += 3;
+  if (accents.length >= 2 && isCompatibleColor(accents[0].color, accents[1].color)) score += 2;
+  if (activeScene === "work" && pieces.some((piece) => piece.category === "outer")) score += 3;
+  if (activeScene === "work" && loudCount) score -= 7;
+  if (activeScene === "daily" && pieces.some((piece) => piece.color === "blue")) score += 2;
+  if (activeScene === "date" && pieces.some((piece) => piece.color === "white")) score += 2;
+  if (activeScene === "date" && pieces.every((piece) => ["black", "gray", "navy"].includes(piece.color))) score -= 4;
+  if (pieces.filter((piece) => piece.style === "soft").length >= 2) score -= 4;
+  return score;
 }
 
 function colorPairScore(a, b) {

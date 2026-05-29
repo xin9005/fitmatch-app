@@ -1,4 +1,4 @@
-const CACHE_NAME = "fitmatch-v23";
+const CACHE_NAME = "fitmatch-v24";
 const ASSETS = [
   "./",
   "./index.html",
