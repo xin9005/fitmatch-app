@@ -1,5 +1,5 @@
 const STORAGE_KEY = "fitmatch-wardrobe-v1";
-const SCRIPT_VERSION = "25";
+const SCRIPT_VERSION = "26";
 const PROFILE_KEY = "fitmatch-profile-v1";
 const SUPABASE_URL = "https://ovbcfhwualkgfxiconet.supabase.co";
 const SUPABASE_KEY = "sb_publishable_RQdb8jNRnz4mlRhUXrdaYQ_E4MhBAAC";
@@ -708,35 +708,52 @@ function renderPurchaseSuggestion(outfit, rule, missing = []) {
 
 function purchaseSuggestionForOutfit(outfit, rule, missing = []) {
   const categories = new Set(outfit.pieces.map((piece) => piece.category));
-  const targetCategory = missing[0] || upgradeCategoryForOutfit(outfit, categories);
-  if (!targetCategory) return null;
+  const target = missing[0]
+    ? { category: missing[0], accessory: false }
+    : upgradeCategoryForOutfit(outfit, categories);
+  if (!target) return null;
 
   const palette = outfit.variant?.palette || rule.colors;
-  const color = preferredSuggestionColor(targetCategory, palette, outfit.pieces);
-  const style = preferredSuggestionStyle(targetCategory, rule);
-  const name = suggestionName(targetCategory, color, style);
-  const reason = suggestionReason(targetCategory, color, style, missing.includes(targetCategory));
+  const category = target.category || target;
+  const color = preferredSuggestionColor(category, palette, outfit.pieces);
+  const style = preferredSuggestionStyle(category, rule);
+  const name = suggestionName(category, color, style);
+  const reason = suggestionReason(category, color, style, missing.includes(category), target.accessory);
 
   return {
-    category: targetCategory,
+    category,
     color,
     style,
     name,
     reason,
-    img: clothingSvg(color, targetCategory, suggestionShape(targetCategory, style), name),
+    img: suggestionImage(color, category, style, name),
   };
 }
 
 function upgradeCategoryForOutfit(outfit, categories) {
-  if (!categories.has("bag")) return "bag";
-  if (!categories.has("outer") && activeScene !== "daily") return "outer";
-  if (activeScene === "date" && !categories.has("bag")) return "bag";
-  if (activeScene === "daily" && !categories.has("shoes")) return "shoes";
+  const accessory = accessorySuggestionForOutfit(outfit);
+  if (accessory) return { category: accessory, accessory: true };
+  if (!categories.has("bag")) return { category: "bag", accessory: false };
+  if (!categories.has("outer") && activeScene !== "daily") return { category: "outer", accessory: false };
+  if (activeScene === "date" && !categories.has("bag")) return { category: "bag", accessory: false };
+  if (activeScene === "daily" && !categories.has("shoes")) return { category: "shoes", accessory: false };
   const score = Number(outfit.score || 0);
   if (score >= 90) return null;
-  if (activeScene === "work") return "outer";
-  if (activeScene === "date") return "bag";
-  return "shoes";
+  if (activeScene === "work") return { category: "watch", accessory: true };
+  if (activeScene === "date") return { category: userProfile.audience === "male" ? "watch" : "necklace", accessory: true };
+  return { category: "socks", accessory: true };
+}
+
+function accessorySuggestionForOutfit(outfit) {
+  const colors = outfit.pieces.map((piece) => piece.color);
+  const hasDarkBase = colors.filter((color) => ["black", "gray", "navy"].includes(color)).length >= 2;
+  if (activeScene === "work") return userProfile.audience === "male" ? "watch" : "belt";
+  if (activeScene === "date") return userProfile.audience === "male" ? "glasses" : "necklace";
+  if (activeScene === "daily") {
+    if (hasDarkBase) return "socks";
+    return userProfile.audience === "male" ? "cap" : "scarf";
+  }
+  return null;
 }
 
 function preferredSuggestionColor(category, palette, pieces) {
@@ -749,7 +766,9 @@ function preferredSuggestionColor(category, palette, pieces) {
 }
 
 function preferredSuggestionStyle(category, rule) {
-  if (category === "bag" || category === "shoes") return userProfile.audience === "male" ? "minimal" : "commute";
+  if (["bag", "shoes", "socks", "glasses", "necklace", "belt", "scarf", "watch", "cap"].includes(category)) {
+    return userProfile.audience === "male" ? "minimal" : "commute";
+  }
   return rule.prefer[0] || "minimal";
 }
 
@@ -764,11 +783,18 @@ function suggestionName(category, color, style) {
     top: `${colorText}${styleText}上衣`,
     bottom: `${colorText}${styleText}下装`,
     dress: `${colorText}${styleText}连衣裙`,
+    socks: `${colorText}中筒袜`,
+    glasses: `${colorText}细框眼镜`,
+    necklace: `${colorText}细链项链`,
+    belt: `${colorText}细腰带`,
+    scarf: `${colorText}小丝巾`,
+    watch: `${colorText}简约腕表`,
+    cap: `${colorText}棒球帽`,
   };
   return names[category] || `${colorText}${categoryText}`;
 }
 
-function suggestionReason(category, color, style, isMissing) {
+function suggestionReason(category, color, style, isMissing, isAccessory = false) {
   const colorText = colorLabels[color] || "基础色";
   const styleText = styleLabels[style] || "简约";
   const categoryText = categoryLabels[category] || "单品";
@@ -778,7 +804,22 @@ function suggestionReason(category, color, style, isMissing) {
   if (category === "bag") return `这套可以用${colorText}包来收住整体颜色，让搭配更完整、更像真实出门造型。`;
   if (category === "shoes") return `鞋子会影响整套比例。选择${colorText}${styleText}款，会让这套更统一。`;
   if (category === "outer") return `加一件${colorText}${styleText}外套，可以提升层次和正式度。`;
+  if (category === "socks") return `袜子能把鞋和下装连接起来。用${colorText}中筒袜，会让脚踝位置更完整。`;
+  if (category === "glasses") return `细框眼镜能增加干净和知性感，让整套更有完成度。`;
+  if (category === "necklace") return `细链项链可以补颈部留白，让约会造型更精致但不夸张。`;
+  if (category === "belt") return `细腰带能明确腰线，也能让上衣和下装之间过渡更自然。`;
+  if (category === "scarf") return `小丝巾能增加轻盈细节，适合让基础款更有层次。`;
+  if (category === "watch") return `简约腕表能提升质感，适合通勤和约会，不会破坏整体干净度。`;
+  if (category === "cap") return `棒球帽能增加日常松弛感，让简单搭配更像完整出门造型。`;
+  if (isAccessory) return `这套已经能穿，再加一个${colorText}${styleText}配饰，会让造型更完整。`;
   return `补一件${colorText}${styleText}${categoryText}，可以提高这套的实穿度和完整感。`;
+}
+
+function suggestionImage(color, category, style, name) {
+  if (["socks", "glasses", "necklace", "belt", "scarf", "watch", "cap"].includes(category)) {
+    return accessorySvg(color, category, name);
+  }
+  return clothingSvg(color, category, suggestionShape(category, style), name);
 }
 
 function suggestionShape(category, style) {
@@ -788,6 +829,33 @@ function suggestionShape(category, style) {
   if (category === "bag") return "bag";
   if (category === "dress") return "dress";
   return "linen";
+}
+
+function accessorySvg(color, category, label) {
+  const palette = {
+    white: ["#f8f2e9", "#d9caba", "#6a6359"],
+    black: ["#2c2a28", "#5c5651", "#d8d5ce"],
+    gray: ["#9b9b98", "#d8d5ce", "#4f5652"],
+    navy: ["#25384d", "#607895", "#edf2ef"],
+    blue: ["#8fb4d6", "#d7e7f4", "#25384d"],
+    brown: ["#8a6045", "#d5b99f", "#3b3028"],
+    pink: ["#d899a3", "#f0ccd1", "#6b4a51"],
+    green: ["#7d9276", "#d8e2d0", "#344338"],
+  };
+  const [main, light, dark] = palette[color] || palette.black;
+  const text = escapeXml(label);
+  const drawings = {
+    socks: `<path d="M92 82 H150 V198 C150 230 126 256 92 256 H70 V222 H92 C108 222 118 212 118 198 V82 Z" fill="${main}"/><path d="M172 82 H230 V198 C230 230 206 256 172 256 H150 V222 H172 C188 222 198 212 198 198 V82 Z" fill="${light}"/><path d="M92 108 H150 M172 108 H230" stroke="${dark}" stroke-width="8"/>`,
+    glasses: `<circle cx="116" cy="168" r="44" fill="none" stroke="${main}" stroke-width="12"/><circle cx="204" cy="168" r="44" fill="none" stroke="${main}" stroke-width="12"/><path d="M160 166 C170 156 180 156 190 166 M72 158 L38 142 M248 158 L282 142" stroke="${dark}" stroke-width="10" fill="none" stroke-linecap="round"/>`,
+    necklace: `<path d="M86 98 C104 210 216 210 234 98" fill="none" stroke="${main}" stroke-width="12" stroke-linecap="round"/><circle cx="160" cy="218" r="24" fill="${light}" stroke="${dark}" stroke-width="8"/><path d="M148 218 H172" stroke="${dark}" stroke-width="6"/>`,
+    belt: `<rect x="54" y="142" width="212" height="42" rx="18" fill="${main}"/><rect x="140" y="132" width="68" height="62" rx="12" fill="none" stroke="${light}" stroke-width="12"/><path d="M208 164 H252" stroke="${dark}" stroke-width="8"/>`,
+    scarf: `<path d="M112 78 C154 58 200 76 218 118 C174 128 138 128 92 118 C96 100 102 88 112 78 Z" fill="${main}"/><path d="M138 122 L108 286 L154 252 L164 132 Z" fill="${light}"/><path d="M178 124 L210 286 L166 252 L154 132 Z" fill="${main}"/><path d="M116 116 C142 136 184 136 210 116" stroke="${dark}" stroke-width="8" fill="none"/>`,
+    watch: `<rect x="134" y="50" width="52" height="88" rx="18" fill="${main}"/><rect x="134" y="222" width="52" height="88" rx="18" fill="${main}"/><circle cx="160" cy="180" r="58" fill="${light}" stroke="${dark}" stroke-width="12"/><path d="M160 180 L160 146 M160 180 L190 196" stroke="${dark}" stroke-width="8" stroke-linecap="round"/>`,
+    cap: `<path d="M72 178 C94 112 210 102 248 174 C196 190 126 190 72 178 Z" fill="${main}"/><path d="M182 178 C218 178 254 186 284 202 C244 220 200 216 166 186 Z" fill="${light}"/><path d="M96 170 C128 146 178 142 222 164" stroke="${dark}" stroke-width="8" fill="none"/>`,
+  };
+  const drawing = drawings[category] || drawings.watch;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 360"><rect width="320" height="360" fill="#edf2ef"/><circle cx="252" cy="76" r="34" fill="${light}" opacity=".55"/><circle cx="66" cy="286" r="46" fill="${light}" opacity=".38"/>${drawing}<text x="160" y="326" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#273735" text-anchor="middle">${text}</text></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
 function shoppingLinks(suggestion) {
