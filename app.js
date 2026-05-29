@@ -1,5 +1,5 @@
 const STORAGE_KEY = "fitmatch-wardrobe-v1";
-const SCRIPT_VERSION = "24";
+const SCRIPT_VERSION = "25";
 const PROFILE_KEY = "fitmatch-profile-v1";
 const SUPABASE_URL = "https://ovbcfhwualkgfxiconet.supabase.co";
 const SUPABASE_KEY = "sb_publishable_RQdb8jNRnz4mlRhUXrdaYQ_E4MhBAAC";
@@ -654,6 +654,7 @@ function renderCurrentOutfits() {
       </div>
       ${missing.length ? `<div class="missing-alert">缺少：${missing.map((category) => categoryLabels[category]).join("、")}</div>` : ""}
       <p>${outfit.reason}</p>
+      ${renderPurchaseSuggestion(outfit, rule, missing)}
     `;
     els.outfitList.append(card);
   });
@@ -684,6 +685,118 @@ function buildOutfits(selected) {
       reason: `${variant.note} 这套按“${variant.structureLabel}”组织，结合${sceneLabels[activeScene]}场景调整单品和色彩；当前偏好是${copy.audience}，${copy.sceneTone}。${missingText}`,
     };
   });
+}
+
+function renderPurchaseSuggestion(outfit, rule, missing = []) {
+  const suggestion = purchaseSuggestionForOutfit(outfit, rule, missing);
+  if (!suggestion) return "";
+  const links = shoppingLinks(suggestion);
+  return `
+    <div class="purchase-suggestion">
+      <div class="purchase-copy">
+        <span>建议补充单品</span>
+        <strong>${suggestion.name}</strong>
+        <p>${suggestion.reason}</p>
+        <div class="purchase-links">
+          ${links.map((link) => `<a href="${link.href}" target="_blank" rel="noopener noreferrer">${link.label}</a>`).join("")}
+        </div>
+      </div>
+      <img src="${suggestion.img}" alt="${suggestion.name}">
+    </div>
+  `;
+}
+
+function purchaseSuggestionForOutfit(outfit, rule, missing = []) {
+  const categories = new Set(outfit.pieces.map((piece) => piece.category));
+  const targetCategory = missing[0] || upgradeCategoryForOutfit(outfit, categories);
+  if (!targetCategory) return null;
+
+  const palette = outfit.variant?.palette || rule.colors;
+  const color = preferredSuggestionColor(targetCategory, palette, outfit.pieces);
+  const style = preferredSuggestionStyle(targetCategory, rule);
+  const name = suggestionName(targetCategory, color, style);
+  const reason = suggestionReason(targetCategory, color, style, missing.includes(targetCategory));
+
+  return {
+    category: targetCategory,
+    color,
+    style,
+    name,
+    reason,
+    img: clothingSvg(color, targetCategory, suggestionShape(targetCategory, style), name),
+  };
+}
+
+function upgradeCategoryForOutfit(outfit, categories) {
+  if (!categories.has("bag")) return "bag";
+  if (!categories.has("outer") && activeScene !== "daily") return "outer";
+  if (activeScene === "date" && !categories.has("bag")) return "bag";
+  if (activeScene === "daily" && !categories.has("shoes")) return "shoes";
+  const score = Number(outfit.score || 0);
+  if (score >= 90) return null;
+  if (activeScene === "work") return "outer";
+  if (activeScene === "date") return "bag";
+  return "shoes";
+}
+
+function preferredSuggestionColor(category, palette, pieces) {
+  const used = pieces.map((piece) => piece.color);
+  const accents = pieces.filter((piece) => ["shoes", "bag"].includes(piece.category));
+  if (category === "bag" && accents[0]?.color) return accents[0].color;
+  if (category === "shoes" && accents[0]?.color) return accents[0].color;
+  const ranked = palette.filter((color) => !used.includes(color));
+  return ranked[0] || palette[0] || "black";
+}
+
+function preferredSuggestionStyle(category, rule) {
+  if (category === "bag" || category === "shoes") return userProfile.audience === "male" ? "minimal" : "commute";
+  return rule.prefer[0] || "minimal";
+}
+
+function suggestionName(category, color, style) {
+  const colorText = colorLabels[color] || "基础色";
+  const styleText = styleLabels[style] || "简约";
+  const categoryText = categoryLabels[category] || "单品";
+  const names = {
+    bag: `${colorText}${styleText}包`,
+    shoes: `${colorText}${styleText}鞋`,
+    outer: `${colorText}${styleText}外套`,
+    top: `${colorText}${styleText}上衣`,
+    bottom: `${colorText}${styleText}下装`,
+    dress: `${colorText}${styleText}连衣裙`,
+  };
+  return names[category] || `${colorText}${categoryText}`;
+}
+
+function suggestionReason(category, color, style, isMissing) {
+  const colorText = colorLabels[color] || "基础色";
+  const styleText = styleLabels[style] || "简约";
+  const categoryText = categoryLabels[category] || "单品";
+  if (isMissing) {
+    return `这套缺${categoryText}。补一件${colorText}${styleText}款，可以让搭配更完整，也更贴合当前场景。`;
+  }
+  if (category === "bag") return `这套可以用${colorText}包来收住整体颜色，让搭配更完整、更像真实出门造型。`;
+  if (category === "shoes") return `鞋子会影响整套比例。选择${colorText}${styleText}款，会让这套更统一。`;
+  if (category === "outer") return `加一件${colorText}${styleText}外套，可以提升层次和正式度。`;
+  return `补一件${colorText}${styleText}${categoryText}，可以提高这套的实穿度和完整感。`;
+}
+
+function suggestionShape(category, style) {
+  if (category === "outer") return style === "commute" ? "blazer" : "cardigan";
+  if (category === "bottom") return "trouser";
+  if (category === "shoes") return userProfile.audience === "male" ? "loafer" : "heel";
+  if (category === "bag") return "bag";
+  if (category === "dress") return "dress";
+  return "linen";
+}
+
+function shoppingLinks(suggestion) {
+  const query = encodeURIComponent(`${suggestion.name} ${userProfile.audience === "male" ? "男装" : "女装"}`);
+  return [
+    { label: "Google购物", href: `https://www.google.com/search?tbm=shop&q=${query}` },
+    { label: "Amazon", href: `https://www.amazon.co.jp/s?k=${query}` },
+    { label: "乐天", href: `https://search.rakuten.co.jp/search/mall/${query}/` },
+  ];
 }
 
 function openSwapPanel(outfitIndex, pieceIndex) {
