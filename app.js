@@ -1,0 +1,1266 @@
+const STORAGE_KEY = "fitmatch-wardrobe-v1";
+const SCRIPT_VERSION = "23";
+const PROFILE_KEY = "fitmatch-profile-v1";
+const SUPABASE_URL = "https://ovbcfhwualkgfxiconet.supabase.co";
+const SUPABASE_KEY = "sb_publishable_RQdb8jNRnz4mlRhUXrdaYQ_E4MhBAAC";
+const CLOUD_BUCKET = "clothes";
+
+const categoryLabels = {
+  all: "全部",
+  top: "上衣",
+  outer: "外套",
+  bottom: "下装",
+  dress: "连衣裙",
+  shoes: "鞋子",
+  bag: "包/配饰",
+};
+
+const colorLabels = {
+  white: "白色/米色",
+  black: "黑色",
+  gray: "灰色",
+  navy: "藏蓝",
+  blue: "蓝色",
+  brown: "棕色",
+  pink: "粉色",
+  green: "绿色",
+};
+
+const styleLabels = {
+  minimal: "简约",
+  commute: "通勤",
+  korean: "韩系",
+  soft: "温柔",
+  casual: "休闲",
+};
+
+const sceneLabels = {
+  work: "上班",
+  daily: "日常",
+  date: "约会",
+};
+
+const sceneRules = {
+  work: {
+    title: "利落通勤",
+    prefer: ["commute", "minimal"],
+    colors: ["white", "black", "gray", "navy", "brown"],
+    reason: "配色稳、线条干净，适合办公室和通勤路上，不会显得用力过猛。",
+  },
+  daily: {
+    title: "轻松日常",
+    prefer: ["minimal", "korean", "casual", "soft"],
+    colors: ["white", "blue", "gray", "brown", "green", "pink"],
+    reason: "保留舒适度，用基础色和低饱和单品做层次，适合咖啡、逛街和周末出门。",
+  },
+  date: {
+    title: "温柔约会",
+    prefer: ["korean", "soft", "minimal"],
+    colors: ["white", "pink", "brown", "gray", "blue"],
+    reason: "整体更柔和，强调亲近感和轻盈感，适合晚餐、展览或轻正式约会。",
+  },
+};
+
+const samples = [
+  item("s1", "白色垂感衬衫", "top", "white", "commute", "linen"),
+  item("s2", "黑色西装外套", "outer", "black", "commute", "blazer"),
+  item("s3", "浅蓝直筒牛仔裤", "bottom", "blue", "korean", "denim"),
+  item("s4", "米色针织开衫", "outer", "white", "korean", "cardigan"),
+  item("s5", "灰色九分西裤", "bottom", "gray", "minimal", "trouser"),
+  item("s6", "棕色乐福鞋", "shoes", "brown", "commute", "loafer"),
+  item("s7", "粉色针织短袖", "top", "pink", "soft", "knit"),
+  item("s8", "黑色小方包", "bag", "black", "minimal", "bag"),
+  item("s9", "海军蓝连衣裙", "dress", "navy", "commute", "dress"),
+  item("s10", "白色低跟鞋", "shoes", "white", "soft", "heel"),
+];
+
+let wardrobe = loadWardrobe();
+let activeCategory = "all";
+let activeScene = "work";
+let selectedId = wardrobe[0]?.id;
+let pendingImage = "";
+let pendingFile = null;
+let editingId = "";
+let currentOutfits = [];
+let currentUser = null;
+let isCloudReady = false;
+let userProfile = loadProfile();
+const supabaseClient = window.supabase?.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const els = {
+  sceneButtons: document.querySelectorAll(".scene-button"),
+  tabButtons: document.querySelectorAll(".tab-button"),
+  pages: document.querySelectorAll(".tab-page"),
+  activeSceneLabel: document.querySelector("#activeSceneLabel"),
+  photoInput: document.querySelector("#photoInput"),
+  uploadEditor: document.querySelector("#uploadEditor"),
+  newItemPreview: document.querySelector("#newItemPreview"),
+  itemForm: document.querySelector("#itemForm"),
+  itemName: document.querySelector("#itemName"),
+  itemCategory: document.querySelector("#itemCategory"),
+  itemColor: document.querySelector("#itemColor"),
+  itemStyle: document.querySelector("#itemStyle"),
+  formStatus: document.querySelector("#formStatus"),
+  cancelUpload: document.querySelector("#cancelUpload"),
+  saveItemButton: document.querySelector("#saveItemButton"),
+  categoryFilters: document.querySelector("#categoryFilters"),
+  wardrobeGrid: document.querySelector("#wardrobeGrid"),
+  itemCount: document.querySelector("#itemCount"),
+  selectedItem: document.querySelector("#selectedItem"),
+  outfitList: document.querySelector("#outfitList"),
+  audienceSelect: document.querySelector("#audienceSelect"),
+  profileAudience: document.querySelector("#profileAudience"),
+  profileStyles: document.querySelector("#profileStyles"),
+  installApp: document.querySelector("#installApp"),
+  authTitle: document.querySelector("#authTitle"),
+  syncStatus: document.querySelector("#syncStatus"),
+  authEmail: document.querySelector("#authEmail"),
+  authPassword: document.querySelector("#authPassword"),
+  loginButton: document.querySelector("#loginButton"),
+  signupButton: document.querySelector("#signupButton"),
+  logoutButton: document.querySelector("#logoutButton"),
+  syncLocalButton: document.querySelector("#syncLocalButton"),
+  cloudActions: document.querySelector("#cloudActions"),
+  resetDemo: document.querySelector("#resetDemo"),
+};
+
+let installPromptEvent = null;
+
+function item(id, name, category, color, style, shape) {
+  return {
+    id,
+    name,
+    category,
+    color,
+    style,
+    img: clothingSvg(color, category, shape, name),
+  };
+}
+
+function clothingSvg(color, category, shape, label) {
+  const palette = {
+    white: ["#f8f2e9", "#d9caba"],
+    black: ["#2c2a28", "#5c5651"],
+    gray: ["#9b9b98", "#d8d5ce"],
+    navy: ["#25384d", "#607895"],
+    blue: ["#8fb4d6", "#d7e7f4"],
+    brown: ["#8a6045", "#d5b99f"],
+    pink: ["#d899a3", "#f0ccd1"],
+    green: ["#7d9276", "#d8e2d0"],
+  };
+  const [main, light] = palette[color] || palette.white;
+  const text = escapeXml(label);
+  const paths = {
+    top: `<path d="M92 100 L136 66 H184 L228 100 L202 138 L192 124 V280 H128 V124 L118 138 Z" fill="${main}"/><path d="M146 70 H174 L166 104 H154 Z" fill="${light}"/>`,
+    outer: `<path d="M94 94 L138 62 H182 L226 94 L210 286 H172 L160 134 L148 286 H110 Z" fill="${main}"/><path d="M139 64 L160 132 L181 64 L190 288 H130 Z" fill="${light}" opacity=".42"/>`,
+    bottom: `<path d="M124 68 H196 L208 286 H170 L160 142 L150 286 H112 Z" fill="${main}"/><path d="M124 68 H196 V104 H124 Z" fill="${light}" opacity=".55"/>`,
+    dress: `<path d="M136 62 H184 L202 128 L230 286 H90 L118 128 Z" fill="${main}"/><path d="M136 62 H184 L170 112 H150 Z" fill="${light}" opacity=".55"/>`,
+    shoes: `<path d="M78 194 C118 182 144 186 170 214 C194 214 220 220 238 238 C190 252 126 250 72 238 C68 220 68 204 78 194 Z" fill="${main}"/><path d="M92 202 C130 202 162 214 188 232" stroke="${light}" stroke-width="8" fill="none"/>`,
+    bag: `<path d="M104 126 H216 L204 270 H116 Z" fill="${main}"/><path d="M132 130 C136 82 184 82 188 130" stroke="${light}" stroke-width="12" fill="none"/><path d="M128 160 H192" stroke="${light}" stroke-width="8"/>`,
+  };
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 360"><rect width="320" height="360" fill="#edf2ef"/><circle cx="246" cy="74" r="42" fill="${light}" opacity=".45"/><circle cx="72" cy="292" r="54" fill="${light}" opacity=".32"/>${paths[category]}<text x="160" y="326" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#273735" text-anchor="middle">${text}</text></svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
+
+function escapeXml(value) {
+  return value.replace(/[<>&"']/g, (char) => ({
+    "<": "&lt;",
+    ">": "&gt;",
+    "&": "&amp;",
+    "\"": "&quot;",
+    "'": "&apos;",
+  })[char]);
+}
+
+function loadWardrobe() {
+  const saved = localStorage.getItem(STORAGE_KEY);
+  if (!saved) return [...samples];
+  try {
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed) || !parsed.length) return [...samples];
+    const userItems = parsed.filter((piece) => !isSampleItem(piece));
+    return userItems.length ? userItems : parsed;
+  } catch {
+    return [...samples];
+  }
+}
+
+function loadProfile() {
+  const saved = localStorage.getItem(PROFILE_KEY);
+  if (!saved) return { audience: "female" };
+  try {
+    const parsed = JSON.parse(saved);
+    return { audience: parsed.audience === "male" ? "male" : "female" };
+  } catch {
+    return { audience: "female" };
+  }
+}
+
+function saveProfile() {
+  localStorage.setItem(PROFILE_KEY, JSON.stringify(userProfile));
+}
+
+function profileCopy() {
+  if (userProfile.audience === "male") {
+    return {
+      audience: "成年男性",
+      styles: "简约 / 通勤 / 日系休闲",
+      sceneTone: "以干净比例、低饱和颜色和实穿度为主",
+    };
+  }
+  return {
+    audience: "成年女性",
+    styles: "简约 / 通勤 / 韩系",
+    sceneTone: "以轻盈比例、柔和层次和实穿度为主",
+  };
+}
+
+function renderProfile() {
+  const copy = profileCopy();
+  els.audienceSelect.value = userProfile.audience;
+  els.profileAudience.textContent = copy.audience;
+  els.profileStyles.textContent = copy.styles;
+}
+
+function saveWardrobe() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(wardrobe));
+}
+
+function isSampleItem(piece) {
+  return String(piece?.id || "").startsWith("s");
+}
+
+function setSyncStatus(message) {
+  els.syncStatus.textContent = message;
+}
+
+function setFormStatus(message) {
+  els.formStatus.textContent = message;
+}
+
+function setSaving(isSaving) {
+  els.saveItemButton.disabled = isSaving;
+  els.saveItemButton.textContent = isSaving ? "保存中..." : (editingId ? "保存修改" : "加入衣柜");
+}
+
+function setRecognizing(isRecognizing) {
+  els.saveItemButton.disabled = isRecognizing;
+  els.saveItemButton.textContent = isRecognizing ? "AI识别中..." : "加入衣柜";
+}
+
+function makeId() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function renderAuthState() {
+  if (currentUser) {
+    els.authTitle.textContent = currentUser.email || "已登录";
+    els.cloudActions.hidden = false;
+    els.authEmail.hidden = true;
+    els.authPassword.hidden = true;
+    els.loginButton.hidden = true;
+    els.signupButton.hidden = true;
+  } else {
+    els.authTitle.textContent = "未登录";
+    els.cloudActions.hidden = true;
+    els.authEmail.hidden = false;
+    els.authPassword.hidden = false;
+    els.loginButton.hidden = false;
+    els.signupButton.hidden = false;
+  }
+}
+
+async function initCloud() {
+  if (!supabaseClient) {
+    setSyncStatus("Supabase SDK 未加载，当前使用本地模式。");
+    return;
+  }
+
+  const { data } = await supabaseClient.auth.getSession();
+  currentUser = data.session?.user || null;
+  renderAuthState();
+
+  supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+    currentUser = session?.user || null;
+    renderAuthState();
+    if (currentUser) {
+      await loadCloudWardrobe();
+    } else {
+      wardrobe = loadWardrobe();
+      selectedId = wardrobe[0]?.id;
+      isCloudReady = false;
+      setSyncStatus("已退出登录，当前使用本地衣柜。");
+      render();
+    }
+  });
+
+  if (currentUser) await loadCloudWardrobe();
+}
+
+async function signIn() {
+  const email = els.authEmail.value.trim();
+  const password = els.authPassword.value;
+  if (!email || !password) {
+    setSyncStatus("请输入邮箱和密码。");
+    return;
+  }
+  setSyncStatus("正在登录...");
+  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error) setSyncStatus(error.message);
+}
+
+async function signUp() {
+  const email = els.authEmail.value.trim();
+  const password = els.authPassword.value;
+  if (!email || !password) {
+    setSyncStatus("请输入邮箱和密码。");
+    return;
+  }
+  setSyncStatus("正在注册...");
+  const { error } = await supabaseClient.auth.signUp({ email, password });
+  if (error) {
+    setSyncStatus(error.message);
+    return;
+  }
+  setSyncStatus("注册成功。如果 Supabase 要求邮箱验证，请先查收邮件。");
+}
+
+async function signOut() {
+  await supabaseClient.auth.signOut();
+}
+
+async function loadCloudWardrobe() {
+  if (!currentUser) return;
+  setSyncStatus("正在同步云端衣柜...");
+  const { data, error } = await supabaseClient
+    .from("wardrobe_items")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) {
+    setSyncStatus(`云端同步失败：${error.message}`);
+    return;
+  }
+
+  wardrobe = data.map(fromCloudRow);
+  if (!wardrobe.length) wardrobe = loadWardrobe().filter((piece) => !isSampleItem(piece));
+  selectedId = wardrobe[0]?.id;
+  isCloudReady = true;
+  setSyncStatus(`云端已同步：${wardrobe.length} 件单品。`);
+  render();
+}
+
+function fromCloudRow(row) {
+  return {
+    id: row.id,
+    cloudId: row.id,
+    imagePath: row.image_path,
+    name: row.name,
+    category: row.category,
+    color: row.color,
+    style: row.style,
+    img: row.image_url,
+  };
+}
+
+async function saveCloudItem(piece, file = null) {
+  if (!currentUser) return piece;
+  const image = await ensureCloudImage(piece, file);
+  const payload = {
+    user_id: currentUser.id,
+    name: piece.name,
+    category: piece.category,
+    color: piece.color,
+    style: piece.style,
+    image_path: image.path,
+    image_url: image.url,
+  };
+
+  if (piece.cloudId || !String(piece.id).startsWith("u-")) {
+    const id = piece.cloudId || piece.id;
+    const { data, error } = await supabaseClient
+      .from("wardrobe_items")
+      .update(payload)
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    return fromCloudRow(data);
+  }
+
+  const { data, error } = await supabaseClient
+    .from("wardrobe_items")
+    .insert(payload)
+    .select()
+    .single();
+  if (error) throw error;
+  return fromCloudRow(data);
+}
+
+async function ensureCloudImage(piece, file = null) {
+  if (piece.imagePath && piece.img?.startsWith("http")) {
+    return { path: piece.imagePath, url: piece.img };
+  }
+
+  const blob = file || dataUrlToBlob(piece.img);
+  const extension = file?.name?.split(".").pop() || blob.type.split("/")[1] || "jpg";
+  const path = `${currentUser.id}/${Date.now()}-${makeId()}.${extension}`;
+  const { error } = await supabaseClient.storage
+    .from(CLOUD_BUCKET)
+    .upload(path, blob, { contentType: blob.type || "image/jpeg", upsert: false });
+  if (error) throw error;
+
+  const { data } = supabaseClient.storage.from(CLOUD_BUCKET).getPublicUrl(path);
+  return { path, url: data.publicUrl };
+}
+
+function dataUrlToBlob(dataUrl) {
+  const [header, base64] = dataUrl.split(",");
+  const mime = header.match(/data:(.*?);base64/)?.[1] || "image/jpeg";
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new Blob([bytes], { type: mime });
+}
+
+function resizeImageForAI(file) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      image.src = String(reader.result);
+    });
+    reader.addEventListener("error", reject);
+    image.addEventListener("load", () => {
+      const maxSide = 900;
+      const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(image.width * scale);
+      canvas.height = Math.round(image.height * scale);
+      const context = canvas.getContext("2d");
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      resolve(canvas.toDataURL("image/jpeg", 0.82));
+    });
+    image.addEventListener("error", reject);
+    reader.readAsDataURL(file);
+  });
+}
+
+async function recognizeClothing(file) {
+  if (!location.protocol.startsWith("http")) {
+    setFormStatus("本地文件模式不能调用 AI。部署到 Netlify 后会自动识别。");
+    return;
+  }
+
+  setRecognizing(true);
+  setFormStatus("AI正在识别衣服类别、颜色和风格...");
+  try {
+    const imageDataUrl = await resizeImageForAI(file);
+    const result = await classifyWithHostedFunction(imageDataUrl);
+    applyRecognition(result);
+    setFormStatus(`AI已识别：${categoryLabels[result.category]} · ${colorLabels[result.color]} · ${styleLabels[result.style]}`);
+  } catch (error) {
+    setFormStatus(`AI识别失败，请手动确认分类：${error.message}`);
+  } finally {
+    setRecognizing(false);
+  }
+}
+
+async function classifyWithHostedFunction(imageDataUrl) {
+  const endpoints = ["/api/classify-clothing", "/.netlify/functions/classify-clothing"];
+  let lastError = null;
+
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageDataUrl }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (response.ok) return result;
+      lastError = new Error(result.error || "AI识别失败");
+      if (response.status !== 404) break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error("AI识别失败");
+}
+
+function applyRecognition(result) {
+  if (result.name) els.itemName.value = result.name;
+  if (categoryLabels[result.category]) els.itemCategory.value = result.category;
+  if (colorLabels[result.color]) els.itemColor.value = result.color;
+  if (styleLabels[result.style]) els.itemStyle.value = result.style;
+}
+
+async function deleteCloudItem(piece) {
+  if (!currentUser || !piece.cloudId) return;
+  const { error } = await supabaseClient.from("wardrobe_items").delete().eq("id", piece.cloudId);
+  if (error) throw error;
+  if (piece.imagePath) {
+    await supabaseClient.storage.from(CLOUD_BUCKET).remove([piece.imagePath]);
+  }
+}
+
+async function syncLocalWardrobeToCloud() {
+  if (!currentUser) return;
+  const localItems = loadWardrobe().filter((piece) => !isSampleItem(piece));
+  if (!localItems.length) {
+    setSyncStatus("本地没有可上传的衣柜。");
+    return;
+  }
+  setSyncStatus(`正在上传 ${localItems.length} 件本地衣服...`);
+  try {
+    const uploaded = [];
+    for (const piece of localItems) {
+      uploaded.push(await saveCloudItem(piece));
+    }
+    wardrobe = uploaded;
+    selectedId = wardrobe[0]?.id;
+    saveWardrobe();
+    setSyncStatus(`已上传 ${uploaded.length} 件到云端。`);
+    render();
+  } catch (error) {
+    setSyncStatus(`上传失败：${error.message}`);
+  }
+}
+
+function renderFilters() {
+  els.categoryFilters.innerHTML = "";
+  Object.entries(categoryLabels).forEach(([key, label]) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `filter-button ${activeCategory === key ? "active" : ""}`;
+    button.textContent = label;
+    button.addEventListener("click", () => {
+      activeCategory = key;
+      render();
+    });
+    els.categoryFilters.append(button);
+  });
+}
+
+function renderWardrobe() {
+  const filtered = activeCategory === "all"
+    ? wardrobe
+    : wardrobe.filter((piece) => piece.category === activeCategory);
+  els.itemCount.textContent = `${wardrobe.length} 件单品`;
+  els.wardrobeGrid.innerHTML = "";
+
+  if (!filtered.length) {
+    els.wardrobeGrid.innerHTML = `<div class="empty-state">这个分类还没有衣服，先上传一件试试。</div>`;
+    return;
+  }
+
+  const template = document.querySelector("#itemTemplate");
+  filtered.forEach((piece) => {
+    const node = template.content.firstElementChild.cloneNode(true);
+    const button = node.querySelector("button");
+    const img = node.querySelector("img");
+    const title = node.querySelector("h3");
+    const meta = node.querySelector("p");
+    const editButton = node.querySelector(".edit-item");
+    const deleteButton = node.querySelector(".delete-item");
+    img.src = piece.img;
+    img.alt = piece.name;
+    title.textContent = piece.name;
+    meta.textContent = `${categoryLabels[piece.category]} · ${colorLabels[piece.color]} · ${styleLabels[piece.style]}`;
+    button.addEventListener("click", () => {
+      selectedId = piece.id;
+      openTab("outfits");
+      render();
+    });
+    editButton.addEventListener("click", () => startEdit(piece.id));
+    deleteButton.addEventListener("click", () => deletePiece(piece.id));
+    els.wardrobeGrid.append(node);
+  });
+}
+
+function renderSelected() {
+  const selected = wardrobe.find((piece) => piece.id === selectedId) || wardrobe[0];
+  if (!selected) {
+    els.selectedItem.innerHTML = "<p>先上传衣服，再生成搭配。</p>";
+    return;
+  }
+  selectedId = selected.id;
+  els.selectedItem.innerHTML = `
+    <h3>当前核心单品：${selected.name}</h3>
+    <p>${categoryLabels[selected.category]} · ${colorLabels[selected.color]} · ${styleLabels[selected.style]} · ${sceneLabels[activeScene]}</p>
+  `;
+}
+
+function renderOutfits() {
+  const selected = wardrobe.find((piece) => piece.id === selectedId) || wardrobe[0];
+  els.outfitList.innerHTML = "";
+  if (!selected) {
+    els.outfitList.innerHTML = `<div class="empty-state">衣柜里还没有可推荐的单品。</div>`;
+    return;
+  }
+
+  currentOutfits = buildOutfits(selected);
+  renderCurrentOutfits();
+}
+
+function renderCurrentOutfits() {
+  const rule = sceneRules[activeScene];
+  els.outfitList.innerHTML = "";
+  currentOutfits.forEach((outfit, index) => {
+    const missing = missingOutfitParts(outfit.pieces, outfit.variant);
+    const score = scoreOutfit(outfit.pieces, rule, missing);
+    const card = document.createElement("article");
+    card.className = "outfit-card";
+    card.innerHTML = `
+      <div class="outfit-title">
+        <h3>${index + 1}. ${outfit.title}</h3>
+        <span class="score">匹配度 ${score}</span>
+      </div>
+      <div class="outfit-pieces">
+        ${outfit.pieces.map((piece, pieceIndex) => `
+          <div class="outfit-piece">
+            <div><img src="${piece.img}" alt="${piece.name}"></div>
+            <span>${categoryLabels[piece.category]} · ${piece.name}</span>
+            <button class="swap-button" data-outfit="${index}" data-piece="${pieceIndex}" type="button">替换</button>
+          </div>
+        `).join("")}
+      </div>
+      ${missing.length ? `<div class="missing-alert">缺少：${missing.map((category) => categoryLabels[category]).join("、")}</div>` : ""}
+      <p>${outfit.reason}</p>
+    `;
+    els.outfitList.append(card);
+  });
+
+  els.outfitList.querySelectorAll(".swap-button").forEach((button) => {
+    button.addEventListener("click", () => openSwapPanel(Number(button.dataset.outfit), Number(button.dataset.piece)));
+  });
+}
+
+function buildOutfits(selected) {
+  const rule = sceneRules[activeScene];
+  const variations = sceneTemplates(activeScene, selected);
+  const copy = profileCopy();
+
+  return variations.map((variant, index) => {
+    const pieces = composeSceneOutfit(selected, rule, variant, index);
+    const missing = missingOutfitParts(pieces, variant);
+    const missingText = missing.length
+      ? ` 当前衣柜还缺${missing.map((category) => categoryLabels[category]).join("、")}，所以这套暂时不完整。`
+      : "";
+
+    return {
+      title: variant.title,
+      pieces,
+      variant,
+      missing,
+      score: scoreOutfit(pieces, rule, missing),
+      reason: `${variant.note} 这套按“${variant.structureLabel}”组织，结合${sceneLabels[activeScene]}场景调整单品和色彩；当前偏好是${copy.audience}，${copy.sceneTone}。${missingText}`,
+    };
+  });
+}
+
+function openSwapPanel(outfitIndex, pieceIndex) {
+  const outfit = currentOutfits[outfitIndex];
+  const piece = outfit?.pieces[pieceIndex];
+  if (!outfit || !piece) return;
+
+  const existing = els.outfitList.querySelector(".swap-panel");
+  if (existing) existing.remove();
+
+  const candidates = wardrobe.filter((item) => item.category === piece.category && item.id !== piece.id);
+  const card = els.outfitList.children[outfitIndex];
+  const panel = document.createElement("div");
+  panel.className = "swap-panel";
+  panel.innerHTML = `
+    <div class="swap-heading">
+      <strong>替换${categoryLabels[piece.category]}</strong>
+      <button class="text-button close-swap" type="button">关闭</button>
+    </div>
+    <div class="swap-options">
+      ${candidates.length ? candidates.map((item) => `
+        <button class="swap-option" data-id="${item.id}" type="button">
+          <img src="${item.img}" alt="${item.name}">
+          <span>${item.name}</span>
+        </button>
+      `).join("") : `<div class="empty-state">衣柜里没有其他${categoryLabels[piece.category]}。</div>`}
+    </div>
+  `;
+  card.append(panel);
+
+  panel.querySelector(".close-swap").addEventListener("click", () => panel.remove());
+  panel.querySelectorAll(".swap-option").forEach((button) => {
+    button.addEventListener("click", () => {
+      const replacement = wardrobe.find((item) => item.id === button.dataset.id);
+      if (!replacement) return;
+      outfit.pieces[pieceIndex] = replacement;
+      renderCurrentOutfits();
+    });
+  });
+}
+
+function sceneTemplates(scene, selected) {
+  if (userProfile.audience === "male") return maleSceneTemplates(scene, selected);
+  const keepSelected = selected.category !== "dress" || scene === "date";
+  const templates = {
+    work: [
+      {
+        title: "利落通勤",
+        slots: ["outer", "top", "bottom", "shoes", "bag"],
+        palette: ["black", "white", "gray", "navy", "brown"],
+        note: "外套和基础色负责正式感，鞋包压住整体轮廓，适合办公室和通勤。",
+        structureLabel: "外套+上衣+下装+鞋包",
+        keepSelected,
+      },
+      {
+        title: "会议友好",
+        slots: ["top", "bottom", "shoes", "bag"],
+        palette: ["white", "gray", "black", "brown", "navy"],
+        note: "减少装饰感，用干净上装和利落下装提升精神度。",
+        structureLabel: "上衣+下装+鞋包",
+        keepSelected: selected.category !== "dress",
+      },
+      {
+        title: "轻正式裙装",
+        slots: ["outer", "dress", "shoes", "bag"],
+        palette: ["black", "gray", "white", "brown", "navy"],
+        note: "裙装负责完整度，外套让它更适合工作场景。",
+        structureLabel: "外套+连衣裙+鞋包",
+        keepSelected: selected.category === "dress",
+      },
+    ],
+    daily: [
+      {
+        title: "轻松日常",
+        slots: ["outer", "top", "bottom", "shoes", "bag"],
+        palette: ["brown", "white", "blue", "gray", "green"],
+        note: "日常场景更看重舒适和层次，外套、下装、鞋包会一起变化。",
+        structureLabel: "外套+上衣+下装+鞋包",
+        keepSelected: false,
+      },
+      {
+        title: "低饱和层次",
+        slots: ["top", "bottom", "shoes", "bag"],
+        palette: ["white", "gray", "brown", "blue", "green"],
+        note: "用低饱和颜色搭出轻松感，适合咖啡、逛街和周末出门。",
+        structureLabel: "上衣+下装+鞋包",
+        keepSelected: selected.category !== "dress",
+      },
+      {
+        title: "一件式休闲",
+        slots: ["dress", "shoes", "bag"],
+        palette: ["gray", "brown", "white", "blue", "black"],
+        note: "连衣裙减少搭配复杂度，鞋包换成更轻松的方向。",
+        structureLabel: "连衣裙+鞋包",
+        keepSelected: selected.category === "dress",
+      },
+    ],
+    date: [
+      {
+        title: "温柔约会",
+        slots: ["dress", "shoes", "bag"],
+        palette: ["white", "pink", "brown", "gray", "black"],
+        note: "约会场景优先完整裙装和柔和配色，看起来更轻盈。",
+        structureLabel: "连衣裙+鞋包",
+        keepSelected: selected.category === "dress",
+      },
+      {
+        title: "柔和层次",
+        slots: ["outer", "top", "bottom", "shoes", "bag"],
+        palette: ["white", "pink", "brown", "gray", "blue"],
+        note: "如果不用连衣裙，就用柔和上装和干净下装做层次。",
+        structureLabel: "外套+上衣+下装+鞋包",
+        keepSelected: selected.category !== "dress",
+      },
+      {
+        title: "轻韩系平衡",
+        slots: ["top", "bottom", "shoes", "bag"],
+        palette: ["white", "gray", "blue", "black", "brown"],
+        note: "保留韩系的清爽比例，让整体更像真实出门搭配。",
+        structureLabel: "上衣+下装+鞋包",
+        keepSelected: selected.category !== "dress",
+      },
+    ],
+  };
+  return templates[scene] || templates.daily;
+}
+
+function maleSceneTemplates(scene, selected) {
+  const keepSelected = selected.category !== "dress";
+  const templates = {
+    work: [
+      {
+        title: "干净通勤",
+        slots: ["outer", "top", "bottom", "shoes", "bag"],
+        palette: ["black", "white", "gray", "navy", "brown"],
+        note: "用外套、基础上装和利落下装建立干净轮廓，适合办公室和通勤。",
+        structureLabel: "外套+上衣+下装+鞋包",
+        keepSelected,
+      },
+      {
+        title: "会议友好",
+        slots: ["top", "bottom", "shoes", "bag"],
+        palette: ["white", "gray", "navy", "black", "brown"],
+        note: "减少复杂颜色，用稳妥的上衣和裤装提升专业感。",
+        structureLabel: "上衣+下装+鞋包",
+        keepSelected,
+      },
+      {
+        title: "轻商务层次",
+        slots: ["outer", "top", "bottom", "shoes"],
+        palette: ["navy", "gray", "white", "black", "brown"],
+        note: "保留外套层次，同时让鞋子和裤装保持低调统一。",
+        structureLabel: "外套+上衣+下装+鞋",
+        keepSelected,
+      },
+    ],
+    daily: [
+      {
+        title: "日系休闲",
+        slots: ["outer", "top", "bottom", "shoes", "bag"],
+        palette: ["white", "gray", "brown", "blue", "green"],
+        note: "日常优先舒适比例和自然层次，适合周末、咖啡和逛街。",
+        structureLabel: "外套+上衣+下装+鞋包",
+        keepSelected: false,
+      },
+      {
+        title: "低饱和基础款",
+        slots: ["top", "bottom", "shoes", "bag"],
+        palette: ["white", "gray", "blue", "black", "brown"],
+        note: "用基础款和低饱和颜色控制整体干净度。",
+        structureLabel: "上衣+下装+鞋包",
+        keepSelected,
+      },
+      {
+        title: "轻松出门",
+        slots: ["top", "bottom", "shoes"],
+        palette: ["white", "blue", "gray", "brown", "black"],
+        note: "减少配件负担，强调舒服、利落、容易出门。",
+        structureLabel: "上衣+下装+鞋",
+        keepSelected,
+      },
+    ],
+    date: [
+      {
+        title: "清爽约会",
+        slots: ["outer", "top", "bottom", "shoes", "bag"],
+        palette: ["white", "gray", "brown", "blue", "black"],
+        note: "约会场景强调干净和亲近感，避免过于正式或沉闷。",
+        structureLabel: "外套+上衣+下装+鞋包",
+        keepSelected,
+      },
+      {
+        title: "温和层次",
+        slots: ["top", "bottom", "shoes", "bag"],
+        palette: ["white", "gray", "brown", "blue", "green"],
+        note: "用柔和颜色和简洁比例保留精致感。",
+        structureLabel: "上衣+下装+鞋包",
+        keepSelected,
+      },
+      {
+        title: "轻熟平衡",
+        slots: ["outer", "top", "bottom", "shoes"],
+        palette: ["black", "gray", "white", "brown", "navy"],
+        note: "保留成熟感，但用浅色内搭和干净鞋款降低距离感。",
+        structureLabel: "外套+上衣+下装+鞋",
+        keepSelected: false,
+      },
+    ],
+  };
+  return templates[scene] || templates.daily;
+}
+
+function composeSceneOutfit(selected, rule, variant, variantIndex) {
+  const chosen = new Map();
+  if (variant.keepSelected && variant.slots.includes(selected.category)) {
+    chosen.set(selected.category, selected);
+  }
+
+  variant.slots.forEach((category) => {
+    if (chosen.has(category)) return;
+    chooseForSlot(chosen, category, rule, variant.palette, variantIndex, selected);
+  });
+
+  return orderedPieces(chosen, variant.slots);
+}
+
+function composeOutfit(selected, rule, palette, variantIndex) {
+  const chosen = new Map();
+  chosen.set(selected.category, selected);
+
+  if (selected.category === "dress") {
+    chooseForSlot(chosen, "shoes", rule, palette, variantIndex, selected);
+    chooseForSlot(chosen, "bag", rule, palette, variantIndex, selected);
+    chooseOptionalOuter(chosen, rule, palette, variantIndex, selected);
+    return orderedPieces(chosen);
+  }
+
+  if (!chosen.has("top")) chooseForSlot(chosen, "top", rule, palette, variantIndex, selected);
+  if (!chosen.has("bottom")) chooseForSlot(chosen, "bottom", rule, palette, variantIndex, selected);
+  if (!chosen.has("shoes")) chooseForSlot(chosen, "shoes", rule, palette, variantIndex, selected);
+  if (!chosen.has("bag")) chooseForSlot(chosen, "bag", rule, palette, variantIndex, selected);
+  chooseOptionalOuter(chosen, rule, palette, variantIndex, selected);
+
+  return orderedPieces(chosen);
+}
+
+function enforceCompleteOutfit(pieces, selected, rule, palette, variantIndex) {
+  const chosen = new Map();
+  pieces.forEach((piece) => {
+    if (!chosen.has(piece.category)) chosen.set(piece.category, piece);
+  });
+
+  const required = requiredOutfitParts(selected);
+  required.forEach((category) => {
+    if (chosen.has(category)) return;
+    const pool = wardrobe.filter((piece) => {
+      return piece.category === category && ![...chosen.values()].some((chosenPiece) => chosenPiece.id === piece.id);
+    });
+    const pick = bestPick(pool, rule, palette, selected, categoryDiversityIndex(category, variantIndex));
+    if (pick) chosen.set(category, pick);
+  });
+
+  if (!chosen.has("outer")) {
+    chooseOptionalOuter(chosen, rule, palette, variantIndex, selected);
+  }
+
+  return orderedPieces(chosen);
+}
+
+function requiredOutfitParts(selected, variant = null) {
+  if (variant) return variant.slots.filter((category) => category !== "outer");
+  if (selected.category === "dress") return ["dress", "shoes", "bag"];
+  return ["top", "bottom", "shoes", "bag"];
+}
+
+function chooseForSlot(chosen, category, rule, palette, variantIndex, selected) {
+  const pool = wardrobe.filter((piece) => {
+    return piece.category === category && !chosen.has(piece.category) && piece.id !== selected.id;
+  });
+  const pick = bestPick(pool, rule, palette, selected, categoryDiversityIndex(category, variantIndex));
+  if (pick) chosen.set(category, pick);
+}
+
+function chooseOptionalOuter(chosen, rule, palette, variantIndex, selected) {
+  if (chosen.has("outer")) return;
+  const pool = wardrobe.filter((piece) => piece.category === "outer" && piece.id !== selected.id);
+  const pick = bestPick(pool, rule, palette, selected, categoryDiversityIndex("outer", variantIndex));
+  if (pick && outfitHasFoundation(chosen)) chosen.set("outer", pick);
+}
+
+function categoryDiversityIndex(category, variantIndex) {
+  const sceneOffset = { work: 0, daily: 1, date: 2 }[activeScene] || 0;
+  if (category === "top") return variantIndex + sceneOffset;
+  if (category === "bottom") return variantIndex + sceneOffset;
+  if (category === "bag") return variantIndex + sceneOffset;
+  if (category === "shoes") return Math.floor((variantIndex + 1) / 2) + sceneOffset;
+  if (category === "outer") return variantIndex + sceneOffset + 1;
+  return variantIndex + sceneOffset;
+}
+
+function bestPick(pool, rule, palette, selected, variantIndex = 0) {
+  if (pool.length > 0 && pool.length <= 3) {
+    return pool[variantIndex % pool.length];
+  }
+
+  const ranked = pool
+    .map((piece, index) => {
+      const paletteIndex = palette.indexOf(piece.color);
+      return {
+        piece,
+        score:
+          (rule.prefer.includes(piece.style) ? 5 : 0) +
+          (paletteIndex >= 0 ? 5 - paletteIndex * 0.45 : 0) +
+          (piece.style === selected.style ? 2 : 0) +
+          (isCompatibleColor(piece.color, selected.color) ? 2 : 0) -
+          Math.abs(index - variantIndex) * 0.2,
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+  if (!ranked.length) return undefined;
+
+  const candidateIndex = variantIndex % ranked.length;
+  return ranked[candidateIndex]?.piece || ranked[0].piece;
+}
+
+function orderedPieces(chosen, slots = null) {
+  const order = slots || ["outer", "top", "dress", "bottom", "shoes", "bag"];
+  return order
+    .map((category) => chosen.get(category))
+    .filter(Boolean);
+}
+
+function outfitHasFoundation(chosen) {
+  return chosen.has("dress") || (chosen.has("top") && chosen.has("bottom"));
+}
+
+function missingOutfitParts(pieces, variant = null) {
+  const categories = new Set(pieces.map((piece) => piece.category));
+  const selected = wardrobe.find((piece) => piece.id === selectedId) || wardrobe[0];
+  return requiredOutfitParts(selected, variant).filter((category) => !categories.has(category));
+}
+
+function scoreOutfit(pieces, rule, missing = []) {
+  if (!pieces.length) return "0";
+
+  let score = 88 - missing.length * 14;
+  const colors = pieces.map((piece) => piece.color);
+  const colorSet = new Set(colors);
+  const mainPieces = pieces.filter((piece) => ["outer", "top", "dress", "bottom"].includes(piece.category));
+  const accents = pieces.filter((piece) => ["shoes", "bag"].includes(piece.category));
+
+  score -= Math.max(0, colorSet.size - 3) * 5;
+  score -= mainPieces.filter((piece) => !rule.colors.includes(piece.color)).length * 4;
+  score -= pieces.filter((piece) => !rule.prefer.includes(piece.style)).length * 4;
+
+  mainPieces.forEach((piece, index) => {
+    mainPieces.slice(index + 1).forEach((other) => {
+      score += colorPairScore(piece.color, other.color);
+    });
+  });
+
+  if (accents.length === 2) {
+    if (accents[0].color === accents[1].color) score += 5;
+    if (accents[0].color !== accents[1].color && !isCompatibleColor(accents[0].color, accents[1].color)) score -= 5;
+  }
+
+  if (activeScene === "work" && pieces.some((piece) => ["pink", "green"].includes(piece.color))) score -= 4;
+  if (activeScene === "date" && pieces.every((piece) => ["black", "gray", "navy"].includes(piece.color))) score -= 5;
+  if (activeScene === "daily" && pieces.filter((piece) => piece.style === "commute").length >= 3) score -= 4;
+
+  return String(Math.max(62, Math.min(96, Math.round(score))));
+}
+
+function colorPairScore(a, b) {
+  if (a === b) return 5;
+  const neutrals = ["white", "black", "gray", "navy"];
+  const earth = ["white", "brown", "green", "gray"];
+  const soft = ["white", "pink", "gray", "brown"];
+  const denim = ["blue", "white", "gray", "black"];
+
+  if (neutrals.includes(a) && neutrals.includes(b)) return 2;
+  if ((a === "pink" && ["white", "gray", "brown"].includes(b)) || (b === "pink" && ["white", "gray", "brown"].includes(a))) return 4;
+  if (earth.includes(a) && earth.includes(b)) return 1;
+  if (soft.includes(a) && soft.includes(b)) return 1;
+  if ((a === "blue" && denim.includes(b)) || (b === "blue" && denim.includes(a))) return 1;
+  if ((a === "blue" && b === "brown") || (a === "brown" && b === "blue")) return -10;
+  if (isCompatibleColor(a, b)) return 0;
+  return -8;
+}
+
+function toneText(pieces) {
+  const colors = pieces.map((piece) => colorLabels[piece.color]).slice(0, 3).join("、");
+  return `${colors}等低风险颜色`;
+}
+
+function isCompatibleColor(a, b) {
+  if (a === b) return true;
+  const neutral = ["white", "black", "gray", "navy", "brown"];
+  return neutral.includes(a) || neutral.includes(b);
+}
+
+function dedupe(pieces) {
+  return pieces.filter((piece, index, arr) => arr.findIndex((target) => target.id === piece.id) === index);
+}
+
+function render() {
+  els.activeSceneLabel.textContent = sceneLabels[activeScene];
+  renderProfile();
+  renderFilters();
+  renderWardrobe();
+  renderSelected();
+  renderOutfits();
+}
+
+function openTab(tabName) {
+  els.tabButtons.forEach((button) => button.classList.toggle("active", button.dataset.tab === tabName));
+  els.pages.forEach((page) => page.classList.toggle("active", page.id === tabName));
+}
+
+els.sceneButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    activeScene = button.dataset.scene;
+    els.sceneButtons.forEach((current) => current.classList.toggle("active", current === button));
+    render();
+  });
+});
+
+els.tabButtons.forEach((button) => {
+  button.addEventListener("click", () => openTab(button.dataset.tab));
+});
+
+els.audienceSelect.addEventListener("change", () => {
+  userProfile = { audience: els.audienceSelect.value === "male" ? "male" : "female" };
+  saveProfile();
+  render();
+  setSyncStatus(`已切换为${profileCopy().audience}偏好。`);
+});
+
+els.loginButton.addEventListener("click", signIn);
+els.signupButton.addEventListener("click", signUp);
+els.logoutButton.addEventListener("click", signOut);
+els.syncLocalButton.addEventListener("click", syncLocalWardrobeToCloud);
+els.authPassword.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") signIn();
+});
+
+window.addEventListener("beforeinstallprompt", (event) => {
+  event.preventDefault();
+  installPromptEvent = event;
+  els.installApp.hidden = false;
+});
+
+els.installApp.addEventListener("click", async () => {
+  if (!installPromptEvent) return;
+  installPromptEvent.prompt();
+  await installPromptEvent.userChoice;
+  installPromptEvent = null;
+  els.installApp.hidden = true;
+});
+
+window.addEventListener("appinstalled", () => {
+  installPromptEvent = null;
+  els.installApp.hidden = true;
+});
+
+function handlePhotoSelection(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  pendingFile = file;
+  setFormStatus("");
+  const reader = new FileReader();
+  reader.addEventListener("load", () => {
+    pendingImage = String(reader.result);
+    els.newItemPreview.src = pendingImage;
+    els.uploadEditor.hidden = false;
+    editingId = "";
+    els.saveItemButton.textContent = "加入衣柜";
+    els.itemName.value = "";
+    recognizeClothing(file);
+  });
+  reader.readAsDataURL(file);
+}
+
+els.photoInput.addEventListener("change", handlePhotoSelection);
+
+els.cancelUpload.addEventListener("click", () => {
+  pendingImage = "";
+  pendingFile = null;
+  editingId = "";
+  setFormStatus("");
+  els.uploadEditor.hidden = true;
+  els.photoInput.value = "";
+});
+
+els.itemForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!pendingImage) {
+    setFormStatus("请先选择照片。");
+    return;
+  }
+
+  setSaving(true);
+  setFormStatus(currentUser ? "正在保存并同步云端..." : "正在保存到本地...");
+  const itemData = {
+    name: els.itemName.value.trim(),
+    category: els.itemCategory.value,
+    color: els.itemColor.value,
+    style: els.itemStyle.value,
+    img: pendingImage,
+  };
+
+  if (editingId) {
+    const original = wardrobe.find((piece) => piece.id === editingId);
+    let updated = { ...original, ...itemData };
+    if (currentUser) {
+      try {
+        updated = await saveCloudItem(updated, pendingFile);
+        setSyncStatus("已保存到云端。");
+      } catch (error) {
+        setSyncStatus(`云端保存失败，已先保存在本机：${error.message}`);
+        setFormStatus("云端保存失败，但已先加入本机衣柜。稍后可再试上传本地衣柜到云端。");
+      }
+    } else {
+      setSyncStatus("已保存到本地。");
+    }
+    wardrobe = wardrobe.map((piece) => piece.id === editingId ? updated : piece);
+    selectedId = updated.id;
+  } else {
+    let newItem = {
+      id: `u-${Date.now()}`,
+      ...itemData,
+    };
+    if (currentUser) {
+      try {
+        newItem = await saveCloudItem(newItem, pendingFile);
+        setSyncStatus("已保存到云端。");
+      } catch (error) {
+        setSyncStatus(`云端保存失败，已先保存在本机：${error.message}`);
+        setFormStatus("云端保存失败，但已先加入本机衣柜。稍后可再试上传本地衣柜到云端。");
+      }
+    } else {
+      setSyncStatus("已保存到本地。");
+    }
+    wardrobe = [newItem, ...wardrobe.filter((piece) => !isSampleItem(piece))];
+    selectedId = newItem.id;
+  }
+
+  saveWardrobe();
+  pendingImage = "";
+  pendingFile = null;
+  editingId = "";
+  setSaving(false);
+  els.uploadEditor.hidden = true;
+  els.photoInput.value = "";
+  openTab("outfits");
+  render();
+});
+
+function startEdit(id) {
+  const piece = wardrobe.find((item) => item.id === id);
+  if (!piece) return;
+  editingId = id;
+  pendingImage = piece.img;
+  pendingFile = null;
+  selectedId = id;
+  els.newItemPreview.src = piece.img;
+  els.itemName.value = piece.name;
+  els.itemCategory.value = piece.category;
+  els.itemColor.value = piece.color;
+  els.itemStyle.value = piece.style;
+  els.saveItemButton.textContent = "保存修改";
+  els.uploadEditor.hidden = false;
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+async function deletePiece(id) {
+  const piece = wardrobe.find((item) => item.id === id);
+  if (!piece) return;
+  const confirmed = window.confirm(`删除「${piece.name}」吗？`);
+  if (!confirmed) return;
+  try {
+    if (currentUser) await deleteCloudItem(piece);
+    wardrobe = wardrobe.filter((item) => item.id !== id);
+    if (selectedId === id) selectedId = wardrobe[0]?.id;
+    saveWardrobe();
+    setSyncStatus(currentUser ? "已从云端删除。" : "已从本地删除。");
+    render();
+  } catch (error) {
+    setSyncStatus(`删除失败：${error.message}`);
+  }
+}
+
+els.resetDemo.addEventListener("click", () => {
+  wardrobe = [...samples];
+  selectedId = wardrobe[0].id;
+  activeCategory = "all";
+  activeScene = "work";
+  localStorage.removeItem(STORAGE_KEY);
+  els.sceneButtons.forEach((button) => button.classList.toggle("active", button.dataset.scene === activeScene));
+  openTab("wardrobe");
+  render();
+});
+
+renderAuthState();
+render();
+initCloud();
